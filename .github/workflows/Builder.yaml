@@ -15,7 +15,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
     - name: checkout master
-      uses: actions/checkout@master
+      uses: actions/checkout@v2
 
     - name: delete latest release
       uses: dev-drprasad/delete-tag-and-release@v0.2.1
@@ -30,15 +30,49 @@ jobs:
     needs: delete_latest_release
     steps:
     - name: checkout master
-      uses: actions/checkout@master
+      uses: actions/checkout@v2
 
-    - name: init linux cross compile env
+    - name: Install dependencies
+      run: |
+        sudo apt update
+        sudo apt install -y build-essential python3 wget tar
+      shell: bash
+
+    - name: Setup CMake
+      run: |
+        wget https://github.com/Kitware/CMake/releases/download/v${{ env.CMAKE_VERSION }}/cmake-${{ env.CMAKE_VERSION }}-linux-x86_64.tar.gz
+        tar -zxvf cmake-${{ env.CMAKE_VERSION }}-linux-x86_64.tar.gz
+        mv cmake-${{ env.CMAKE_VERSION }}-linux-x86_64 $HOME/opt/cmake-$CMAKE_VERSION
+      shell: bash
+
+    - name: Setup LLVM
+      run: |
+        wget https://github.com/llvm/llvm-project/releases/download/llvmorg-${{ env.LLVM_VERSION }}/clang+llvm-${{ env.LLVM_VERSION }}-x86_64-linux-gnu-ubuntu-20.04.tar.xz
+        tar -xvf clang+llvm-${{ env.LLVM_VERSION }}-x86_64-linux-gnu-ubuntu-20.04.tar.xz
+        mv clang+llvm-${{ env.LLVM_VERSION }}-x86_64-linux-gnu-ubuntu-20.04 $HOME/opt/llvm-$LLVM_VERSION
+      shell: bash
+
+    - name: Setup Android NDK
+      run: |
+        wget https://dl.google.com/android/repository/android-ndk-${{ env.NDK_VERSION }}-linux.zip
+        unzip android-ndk-${{ env.NDK_VERSION }}-linux.zip -d $HOME/opt/
+        mv $HOME/opt/android-ndk-${{ env.NDK_VERSION }} $HOME/opt/ndk-$NDK_VERSION
+      shell: bash
+
+    - name: Init Linux cross-compile environment
       run: |
         sh scripts/setup_linux_cross_compile.sh
         mkdir -p artifact
       shell: bash
 
-    - name: compile android
+    - name: Compile for Linux
+      run: |
+        python3 scripts/platform_builder.py --platform=linux --arch=all --cmake_dir=$HOME/opt/cmake-$CMAKE_VERSION --llvm_dir=$HOME/opt/llvm-$LLVM_VERSION
+        tar -zcvf build/dobby-linux-all.tar.gz build/linux
+        cp build/dobby-linux-all.tar.gz artifact/
+      shell: bash
+
+    - name: Compile for Android
       run: |
         python3 scripts/platform_builder.py --platform=android --arch=all --cmake_dir=$HOME/opt/cmake-$CMAKE_VERSION --llvm_dir=$HOME/opt/llvm-$LLVM_VERSION --android_ndk_dir=$HOME/opt/ndk-$NDK_VERSION
         cp include/dobby.h build/android
@@ -46,16 +80,17 @@ jobs:
         cp build/dobby-android-all.tar.gz artifact/
       shell: bash
 
-    - name: print output
+    - name: List files in artifact
       run: |
-        ls -lha .
+        ls -lha artifact/
+      shell: bash
 
-    - name: update release
+    - name: Update release
       uses: ncipollo/release-action@v1
       with:
         token: ${{ secrets.GITHUB_TOKEN }}
         tag: latest
         body: "a lightweight, multi-platform, multi-architecture exploit hook framework"
-        artifacts: "build/dobby-linux-all.tar.gz,build/dobby-android-all.tar.gz"
+        artifacts: "artifact/dobby-linux-all.tar.gz,artifact/dobby-android-all.tar.gz"
         allowUpdates: true
         replacesArtifacts: true
